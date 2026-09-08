@@ -1,0 +1,1015 @@
+/**
+ * Document OpenAPI 3.0 complet et écrit à la main (pas de génération depuis
+ * des commentaires JSDoc éparpillés dans les routes — plus simple à relire
+ * et à tenir exact). Servi en JSON brut sur /api-docs.json et via Swagger UI
+ * sur /api-docs. Toute nouvelle route doit être ajoutée ici.
+ */
+
+const servers = [
+  { url: 'http://localhost:5000/api/v1', description: 'Local' },
+];
+
+const securitySchemes = {
+  bearerAuth: {
+    type: 'http',
+    scheme: 'bearer',
+    bearerFormat: 'JWT',
+    description: "Jeton d'accès obtenu via un endpoint de connexion (`accessToken`).",
+  },
+};
+
+// --- Schémas de données ------------------------------------------------------
+
+const schemas = {
+  Account: {
+    type: 'object',
+    properties: {
+      id: { type: 'string', example: 'cmtslfwnu0007c8w0xzxuxskz' },
+      role: { type: 'string', enum: ['DRIVER', 'STATION', 'ADMIN'] },
+      status: { type: 'string', enum: ['ACTIVE', 'SUSPENDED', 'DELETED'] },
+      phoneNumber: { type: 'string', nullable: true, example: '+224622334455' },
+      fullName: { type: 'string', nullable: true },
+      locale: { type: 'string', example: 'fr' },
+      defaultAreaId: { type: 'string', nullable: true },
+      loginCode: { type: 'string', nullable: true, description: 'Comptes STATION uniquement.' },
+      lastSeenAt: { type: 'string', format: 'date-time', nullable: true },
+      createdAt: { type: 'string', format: 'date-time' },
+      updatedAt: { type: 'string', format: 'date-time' },
+    },
+  },
+  Area: {
+    type: 'object',
+    properties: {
+      id: { type: 'string' },
+      slug: { type: 'string', example: 'kaloum' },
+      label: { type: 'string', example: 'Kaloum' },
+      latitude: { type: 'number', format: 'double' },
+      longitude: { type: 'number', format: 'double' },
+      isActive: { type: 'boolean' },
+      sortOrder: { type: 'integer' },
+    },
+  },
+  Brand: {
+    type: 'object',
+    properties: {
+      id: { type: 'string' },
+      slug: { type: 'string', example: 'total-energies' },
+      name: { type: 'string', example: 'TotalEnergies' },
+      logoUrl: { type: 'string', nullable: true },
+    },
+  },
+  StationProduct: {
+    type: 'object',
+    properties: {
+      id: { type: 'string' },
+      stationId: { type: 'string' },
+      product: { type: 'string', enum: ['ESSENCE', 'GASOIL', 'GAZ'] },
+      availability: { type: 'string', enum: ['AVAILABLE', 'EMPTY'] },
+      priceGnf: { type: 'integer', nullable: true, example: 15000 },
+      updatedAt: { type: 'string', format: 'date-time' },
+      updatedById: { type: 'string', nullable: true },
+    },
+  },
+  StationActivity: {
+    type: 'object',
+    properties: {
+      id: { type: 'string' },
+      stationId: { type: 'string' },
+      accountId: { type: 'string', nullable: true },
+      kind: { type: 'string', enum: ['AVAILABILITY', 'OPEN_STATE', 'PRICE', 'VERIFICATION'] },
+      tone: { type: 'string', enum: ['AVAILABLE', 'EMPTY', 'OPEN', 'CLOSED'] },
+      label: { type: 'string', example: 'Essence' },
+      detail: { type: 'string', example: 'Marqué disponible' },
+      product: { type: 'string', enum: ['ESSENCE', 'GASOIL', 'GAZ'], nullable: true },
+      availability: { type: 'string', enum: ['AVAILABLE', 'EMPTY'], nullable: true },
+      isOpen: { type: 'boolean', nullable: true },
+      createdAt: { type: 'string', format: 'date-time' },
+    },
+  },
+  StationReport: {
+    type: 'object',
+    properties: {
+      id: { type: 'string' },
+      stationId: { type: 'string' },
+      accountId: { type: 'string', nullable: true },
+      kind: {
+        type: 'string',
+        enum: ['WRONG_AVAILABILITY', 'WRONG_OPEN_STATE', 'WRONG_LOCATION', 'CLOSED_PERMANENTLY', 'OTHER'],
+      },
+      product: { type: 'string', enum: ['ESSENCE', 'GASOIL', 'GAZ'], nullable: true },
+      comment: { type: 'string', nullable: true },
+      status: { type: 'string', enum: ['PENDING', 'ACCEPTED', 'REJECTED'] },
+      resolvedAt: { type: 'string', format: 'date-time', nullable: true },
+      createdAt: { type: 'string', format: 'date-time' },
+    },
+  },
+  Station: {
+    type: 'object',
+    properties: {
+      id: { type: 'string' },
+      slug: { type: 'string' },
+      name: { type: 'string', example: 'Station Kaloum' },
+      brandId: { type: 'string', nullable: true },
+      areaId: { type: 'string', nullable: true },
+      neighborhood: { type: 'string', nullable: true, example: 'Almamy' },
+      city: { type: 'string', example: 'Conakry' },
+      address: { type: 'string', nullable: true },
+      phoneNumber: { type: 'string', nullable: true },
+      latitude: { type: 'number', format: 'double' },
+      longitude: { type: 'number', format: 'double' },
+      isOpen: { type: 'boolean' },
+      isPublished: { type: 'boolean' },
+      verifiedAt: { type: 'string', format: 'date-time', nullable: true },
+      openingHours: { type: 'object', nullable: true },
+      statusUpdatedAt: { type: 'string', format: 'date-time' },
+      createdAt: { type: 'string', format: 'date-time' },
+      updatedAt: { type: 'string', format: 'date-time' },
+      distance: { type: 'integer', description: 'Mètres — présent uniquement sur /app/stations/nearby.' },
+      brand: { $ref: '#/components/schemas/Brand', nullable: true },
+      area: { $ref: '#/components/schemas/Area', nullable: true },
+      products: { type: 'array', items: { $ref: '#/components/schemas/StationProduct' } },
+      activities: { type: 'array', items: { $ref: '#/components/schemas/StationActivity' } },
+    },
+  },
+  ChatThread: {
+    type: 'object',
+    properties: {
+      id: { type: 'string' },
+      accountId: { type: 'string' },
+      status: { type: 'string', enum: ['OPEN', 'ESCALATED', 'CLOSED'] },
+      escalatedAt: { type: 'string', format: 'date-time', nullable: true },
+      closedAt: { type: 'string', format: 'date-time', nullable: true },
+      createdAt: { type: 'string', format: 'date-time' },
+      updatedAt: { type: 'string', format: 'date-time' },
+    },
+  },
+  ChatMessage: {
+    type: 'object',
+    properties: {
+      id: { type: 'string' },
+      threadId: { type: 'string' },
+      role: { type: 'string', enum: ['USER', 'BOT', 'AGENT'] },
+      text: { type: 'string' },
+      intentId: { type: 'string', nullable: true },
+      createdAt: { type: 'string', format: 'date-time' },
+    },
+  },
+  StationMembership: {
+    type: 'object',
+    properties: {
+      role: { type: 'string', enum: ['OWNER', 'STAFF'] },
+      station: { $ref: '#/components/schemas/Station' },
+    },
+  },
+  AuthTokens: {
+    type: 'object',
+    properties: {
+      accessToken: { type: 'string' },
+      refreshToken: { type: 'string' },
+    },
+  },
+  Error: {
+    type: 'object',
+    properties: {
+      success: { type: 'boolean', example: false },
+      message: { type: 'string' },
+    },
+  },
+};
+
+// --- Réponses réutilisables --------------------------------------------------
+
+const responses = {
+  BadRequest: {
+    description: 'Requête invalide.',
+    content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+  },
+  Unauthorized: {
+    description: 'Authentification manquante, invalide ou expirée.',
+    content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+  },
+  Forbidden: {
+    description: "Rôle ou droits insuffisants pour cette ressource.",
+    content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+  },
+  NotFound: {
+    description: 'Ressource introuvable.',
+    content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+  },
+};
+
+// --- Aides pour raccourcir les définitions de routes -------------------------
+
+const ok = (schema, description = 'OK') => ({
+  description,
+  content: {
+    'application/json': {
+      schema: {
+        type: 'object',
+        properties: { success: { type: 'boolean', example: true }, data: schema },
+      },
+    },
+  },
+});
+
+const okList = (itemSchema, description = 'OK') => ({
+  description,
+  content: {
+    'application/json': {
+      schema: {
+        type: 'object',
+        properties: {
+          success: { type: 'boolean', example: true },
+          count: { type: 'integer' },
+          data: { type: 'array', items: itemSchema },
+        },
+      },
+    },
+  },
+});
+
+const bearer = [{ bearerAuth: [] }];
+
+// --- Endpoints ---------------------------------------------------------------
+
+const paths = {
+  // ===== App — Auth chauffeur =====================================
+  '/app/auth/otp/request': {
+    post: {
+      tags: ['App · Auth'],
+      summary: 'Demander un code OTP par SMS',
+      description: "Crée un défi OTP et envoie un code à 6 chiffres par SMS. Valide 10 minutes.",
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['phoneNumber'],
+              properties: {
+                phoneNumber: { type: 'string', example: '+224622334455', description: 'Format E.164 Guinée.' },
+                purpose: { type: 'string', enum: ['SIGN_IN', 'PHONE_CHANGE'], default: 'SIGN_IN' },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        200: { description: 'Code envoyé.', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+        400: responses.BadRequest,
+      },
+    },
+  },
+  '/app/auth/otp/verify': {
+    post: {
+      tags: ['App · Auth'],
+      summary: 'Vérifier le code OTP et se connecter',
+      description: 'Crée le compte DRIVER au premier appel (upsert par numéro), puis ouvre une session.',
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['phoneNumber', 'code'],
+              properties: {
+                phoneNumber: { type: 'string', example: '+224622334455' },
+                code: { type: 'string', example: '482913' },
+                fullName: { type: 'string', description: 'Optionnel, utilisé seulement à la création du compte.' },
+                deviceId: { type: 'string' },
+                deviceName: { type: 'string' },
+                platform: { type: 'string', enum: ['IOS', 'ANDROID', 'WEB'] },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        200: {
+          description: 'Connexion réussie.',
+          content: {
+            'application/json': {
+              schema: {
+                allOf: [
+                  { $ref: '#/components/schemas/AuthTokens' },
+                  { type: 'object', properties: { success: { type: 'boolean' }, account: { $ref: '#/components/schemas/Account' } } },
+                ],
+              },
+            },
+          },
+        },
+        400: responses.BadRequest,
+        429: { description: 'Trop de tentatives, redemander un code.' },
+      },
+    },
+  },
+  '/app/auth/refresh': {
+    post: {
+      tags: ['App · Auth'],
+      summary: "Renouveler les jetons (rotation)",
+      requestBody: {
+        required: true,
+        content: { 'application/json': { schema: { type: 'object', required: ['refreshToken'], properties: { refreshToken: { type: 'string' } } } } },
+      },
+      responses: { 200: { description: 'Nouveaux jetons.', content: { 'application/json': { schema: { $ref: '#/components/schemas/AuthTokens' } } } }, 401: responses.Unauthorized },
+    },
+  },
+  '/app/auth/logout': {
+    post: {
+      tags: ['App · Auth'],
+      summary: 'Se déconnecter (révoque la session)',
+      security: bearer,
+      requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { refreshToken: { type: 'string' } } } } } },
+      responses: { 200: { description: 'Déconnecté.' }, 401: responses.Unauthorized },
+    },
+  },
+  '/app/auth/me': {
+    get: {
+      tags: ['App · Auth'],
+      summary: 'Mon profil chauffeur',
+      security: bearer,
+      responses: { 200: ok({ $ref: '#/components/schemas/Account' }), 401: responses.Unauthorized },
+    },
+    put: {
+      tags: ['App · Auth'],
+      summary: 'Mettre à jour mon profil',
+      security: bearer,
+      requestBody: {
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              properties: { fullName: { type: 'string' }, locale: { type: 'string' }, defaultAreaId: { type: 'string' } },
+            },
+          },
+        },
+      },
+      responses: { 200: ok({ $ref: '#/components/schemas/Account' }), 401: responses.Unauthorized },
+    },
+  },
+  '/app/auth/push-token': {
+    post: {
+      tags: ['App · Auth'],
+      summary: 'Enregistrer un token de notification push',
+      security: bearer,
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['token', 'platform'],
+              properties: { token: { type: 'string' }, platform: { type: 'string', enum: ['IOS', 'ANDROID', 'WEB'] } },
+            },
+          },
+        },
+      },
+      responses: { 200: { description: 'Token enregistré.' }, 400: responses.BadRequest, 401: responses.Unauthorized },
+    },
+  },
+
+  // ===== App — Stations ============================================
+  '/app/stations': {
+    get: {
+      tags: ['App · Stations'],
+      summary: 'Lister les stations publiées',
+      responses: { 200: okList({ $ref: '#/components/schemas/Station' }) },
+    },
+  },
+  '/app/stations/nearby': {
+    get: {
+      tags: ['App · Stations'],
+      summary: 'Rechercher les stations à proximité',
+      description: "Journalise un SearchEvent si l'appelant est authentifié (Authorization optionnel).",
+      security: [{}, ...bearer],
+      parameters: [
+        { name: 'latitude', in: 'query', required: true, schema: { type: 'number' } },
+        { name: 'longitude', in: 'query', required: true, schema: { type: 'number' } },
+        { name: 'radius', in: 'query', schema: { type: 'number', default: 5 }, description: 'Rayon en km.' },
+        { name: 'product', in: 'query', schema: { type: 'string', enum: ['ESSENCE', 'GASOIL', 'GAZ'] } },
+      ],
+      responses: { 200: okList({ $ref: '#/components/schemas/Station' }), 400: responses.BadRequest },
+    },
+  },
+  '/app/stations/{id}': {
+    get: {
+      tags: ['App · Stations'],
+      summary: "Détail d'une station",
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      responses: { 200: ok({ $ref: '#/components/schemas/Station' }), 404: responses.NotFound },
+    },
+  },
+  '/app/stations/{id}/reports': {
+    post: {
+      tags: ['App · Stations'],
+      summary: 'Signaler une information incorrecte',
+      security: bearer,
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['kind'],
+              properties: {
+                kind: {
+                  type: 'string',
+                  enum: ['WRONG_AVAILABILITY', 'WRONG_OPEN_STATE', 'WRONG_LOCATION', 'CLOSED_PERMANENTLY', 'OTHER'],
+                },
+                product: { type: 'string', enum: ['ESSENCE', 'GASOIL', 'GAZ'] },
+                comment: { type: 'string' },
+              },
+            },
+          },
+        },
+      },
+      responses: { 201: ok({ $ref: '#/components/schemas/StationReport' }), 400: responses.BadRequest, 404: responses.NotFound },
+    },
+  },
+
+  // ===== App — Chat =================================================
+  '/app/chat/threads': {
+    get: {
+      tags: ['App · Chat'],
+      summary: 'Lister mes conversations',
+      security: bearer,
+      responses: { 200: okList({ $ref: '#/components/schemas/ChatThread' }) },
+    },
+    post: {
+      tags: ['App · Chat'],
+      summary: 'Ouvrir (ou reprendre) une conversation',
+      description: "Retourne la conversation OPEN/ESCALATED existante s'il y en a une, sinon en crée une.",
+      security: bearer,
+      responses: { 200: ok({ $ref: '#/components/schemas/ChatThread' }) },
+    },
+  },
+  '/app/chat/threads/{id}/messages': {
+    get: {
+      tags: ['App · Chat'],
+      summary: "Lister les messages d'une conversation",
+      security: bearer,
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      responses: { 200: okList({ $ref: '#/components/schemas/ChatMessage' }), 404: responses.NotFound },
+    },
+    post: {
+      tags: ['App · Chat'],
+      summary: 'Envoyer un message',
+      description: 'Déclenche une réponse automatique du bot (FAQ) ou escalade la conversation si aucune règle ne correspond.',
+      security: bearer,
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      requestBody: {
+        required: true,
+        content: { 'application/json': { schema: { type: 'object', required: ['text'], properties: { text: { type: 'string' } } } } },
+      },
+      responses: { 201: okList({ $ref: '#/components/schemas/ChatMessage' }, 'Le message envoyé, suivi de la réponse du bot le cas échéant.'), 400: responses.BadRequest, 404: responses.NotFound },
+    },
+  },
+  '/app/chat/threads/{id}/close': {
+    post: {
+      tags: ['App · Chat'],
+      summary: 'Clôturer une conversation',
+      security: bearer,
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      responses: { 200: { description: 'Conversation clôturée.' }, 404: responses.NotFound },
+    },
+  },
+
+  // ===== Station — Auth ==============================================
+  '/station/auth/login': {
+    post: {
+      tags: ['Station · Auth'],
+      summary: 'Connexion station (code + mot de passe)',
+      description: "Le compte STATION est créé par un admin via POST /admin/stations/{id}/accounts.",
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['loginCode', 'password'],
+              properties: { loginCode: { type: 'string' }, password: { type: 'string' } },
+            },
+          },
+        },
+      },
+      responses: {
+        200: {
+          description: 'Connexion réussie.',
+          content: {
+            'application/json': {
+              schema: {
+                allOf: [
+                  { $ref: '#/components/schemas/AuthTokens' },
+                  { type: 'object', properties: { success: { type: 'boolean' }, account: { $ref: '#/components/schemas/Account' } } },
+                ],
+              },
+            },
+          },
+        },
+        401: responses.Unauthorized,
+        403: responses.Forbidden,
+      },
+    },
+  },
+  '/station/auth/password': {
+    put: {
+      tags: ['Station · Auth'],
+      summary: 'Changer mon mot de passe',
+      security: bearer,
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['currentPassword', 'newPassword'],
+              properties: { currentPassword: { type: 'string' }, newPassword: { type: 'string' } },
+            },
+          },
+        },
+      },
+      responses: { 200: { description: 'Mot de passe mis à jour.' }, 401: responses.Unauthorized },
+    },
+  },
+
+  // ===== Station — Dashboard ==========================================
+  '/station/dashboard/stations': {
+    get: {
+      tags: ['Station · Dashboard'],
+      summary: 'Lister les stations que je gère',
+      security: bearer,
+      responses: { 200: okList({ $ref: '#/components/schemas/StationMembership' }) },
+    },
+  },
+  '/station/dashboard/{stationId}': {
+    get: {
+      tags: ['Station · Dashboard'],
+      summary: "Tableau de bord d'une station",
+      description: 'Inclut les produits, les 20 dernières activités et les signalements en attente.',
+      security: bearer,
+      parameters: [{ name: 'stationId', in: 'path', required: true, schema: { type: 'string' } }],
+      responses: { 200: ok({ $ref: '#/components/schemas/Station' }), 403: responses.Forbidden },
+    },
+  },
+  '/station/dashboard/{stationId}/open': {
+    put: {
+      tags: ['Station · Dashboard'],
+      summary: 'Ouvrir / fermer la station',
+      security: bearer,
+      parameters: [{ name: 'stationId', in: 'path', required: true, schema: { type: 'string' } }],
+      requestBody: {
+        required: true,
+        content: { 'application/json': { schema: { type: 'object', required: ['isOpen'], properties: { isOpen: { type: 'boolean' } } } } },
+      },
+      responses: { 200: ok({ $ref: '#/components/schemas/Station' }), 400: responses.BadRequest, 403: responses.Forbidden },
+    },
+  },
+  '/station/dashboard/{stationId}/products/{product}': {
+    put: {
+      tags: ['Station · Dashboard'],
+      summary: "Mettre à jour la disponibilité / le prix d'un produit",
+      description: 'Ajoute automatiquement une (ou deux) entrées StationActivity.',
+      security: bearer,
+      parameters: [
+        { name: 'stationId', in: 'path', required: true, schema: { type: 'string' } },
+        { name: 'product', in: 'path', required: true, schema: { type: 'string', enum: ['ESSENCE', 'GASOIL', 'GAZ'] } },
+      ],
+      requestBody: {
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              properties: { availability: { type: 'string', enum: ['AVAILABLE', 'EMPTY'] }, priceGnf: { type: 'integer' } },
+            },
+          },
+        },
+      },
+      responses: { 200: ok({ $ref: '#/components/schemas/StationProduct' }), 400: responses.BadRequest, 403: responses.Forbidden },
+    },
+  },
+  '/station/dashboard/{stationId}/activities': {
+    get: {
+      tags: ['Station · Dashboard'],
+      summary: "Historique d'activité de la station (50 dernières)",
+      security: bearer,
+      parameters: [{ name: 'stationId', in: 'path', required: true, schema: { type: 'string' } }],
+      responses: { 200: okList({ $ref: '#/components/schemas/StationActivity' }), 403: responses.Forbidden },
+    },
+  },
+  '/station/dashboard/{stationId}/reports': {
+    get: {
+      tags: ['Station · Dashboard'],
+      summary: 'Signalements reçus par la station',
+      security: bearer,
+      parameters: [{ name: 'stationId', in: 'path', required: true, schema: { type: 'string' } }],
+      responses: { 200: okList({ $ref: '#/components/schemas/StationReport' }), 403: responses.Forbidden },
+    },
+  },
+
+  // ===== Admin — Auth ==================================================
+  '/admin/auth/login': {
+    post: {
+      tags: ['Admin · Auth'],
+      summary: 'Connexion admin',
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['phoneNumber', 'password'],
+              properties: { phoneNumber: { type: 'string' }, password: { type: 'string' } },
+            },
+          },
+        },
+      },
+      responses: { 200: { description: 'Connexion réussie.' }, 401: responses.Unauthorized, 403: responses.Forbidden },
+    },
+  },
+  '/admin/auth/me': {
+    get: {
+      tags: ['Admin · Auth'],
+      summary: 'Mon profil admin',
+      security: bearer,
+      responses: { 200: ok({ $ref: '#/components/schemas/Account' }), 401: responses.Unauthorized },
+    },
+  },
+
+  // ===== Admin — Comptes ================================================
+  '/admin/accounts': {
+    get: {
+      tags: ['Admin · Comptes'],
+      summary: 'Lister les comptes',
+      security: bearer,
+      parameters: [
+        { name: 'role', in: 'query', schema: { type: 'string', enum: ['DRIVER', 'STATION', 'ADMIN'] } },
+        { name: 'status', in: 'query', schema: { type: 'string', enum: ['ACTIVE', 'SUSPENDED', 'DELETED'] } },
+      ],
+      responses: { 200: okList({ $ref: '#/components/schemas/Account' }), 403: responses.Forbidden },
+    },
+  },
+  '/admin/accounts/{id}': {
+    get: {
+      tags: ['Admin · Comptes'],
+      summary: "Détail d'un compte",
+      security: bearer,
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      responses: { 200: ok({ $ref: '#/components/schemas/Account' }), 404: responses.NotFound },
+    },
+  },
+  '/admin/accounts/{id}/status': {
+    put: {
+      tags: ['Admin · Comptes'],
+      summary: 'Suspendre / réactiver / supprimer un compte',
+      security: bearer,
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: { type: 'object', required: ['status'], properties: { status: { type: 'string', enum: ['ACTIVE', 'SUSPENDED', 'DELETED'] } } },
+          },
+        },
+      },
+      responses: { 200: ok({ $ref: '#/components/schemas/Account' }), 400: responses.BadRequest },
+    },
+  },
+
+  // ===== Admin — Stations ================================================
+  '/admin/stations': {
+    get: {
+      tags: ['Admin · Stations'],
+      summary: 'Lister toutes les stations',
+      security: bearer,
+      responses: { 200: okList({ $ref: '#/components/schemas/Station' }) },
+    },
+    post: {
+      tags: ['Admin · Stations'],
+      summary: 'Créer une station',
+      security: bearer,
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['name', 'latitude', 'longitude'],
+              properties: {
+                name: { type: 'string' },
+                brandId: { type: 'string' },
+                areaId: { type: 'string' },
+                neighborhood: { type: 'string' },
+                city: { type: 'string', default: 'Conakry' },
+                address: { type: 'string' },
+                phoneNumber: { type: 'string' },
+                latitude: { type: 'number' },
+                longitude: { type: 'number' },
+              },
+            },
+          },
+        },
+      },
+      responses: { 201: ok({ $ref: '#/components/schemas/Station' }), 400: responses.BadRequest },
+    },
+  },
+  '/admin/stations/import-osm': {
+    post: {
+      tags: ['Admin · Stations'],
+      summary: 'Importer/synchroniser les stations depuis OpenStreetMap (Guinée)',
+      security: bearer,
+      responses: { 200: { description: 'Import terminé (créées / mises à jour / ignorées / erreurs).' } },
+    },
+  },
+  '/admin/stations/{id}': {
+    get: {
+      tags: ['Admin · Stations'],
+      summary: "Détail d'une station",
+      security: bearer,
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      responses: { 200: ok({ $ref: '#/components/schemas/Station' }), 404: responses.NotFound },
+    },
+    put: {
+      tags: ['Admin · Stations'],
+      summary: 'Modifier une station',
+      security: bearer,
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      requestBody: {
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              properties: {
+                name: { type: 'string' },
+                brandId: { type: 'string' },
+                areaId: { type: 'string' },
+                neighborhood: { type: 'string' },
+                city: { type: 'string' },
+                address: { type: 'string' },
+                phoneNumber: { type: 'string' },
+                latitude: { type: 'number' },
+                longitude: { type: 'number' },
+                isPublished: { type: 'boolean' },
+              },
+            },
+          },
+        },
+      },
+      responses: { 200: ok({ $ref: '#/components/schemas/Station' }), 404: responses.NotFound },
+    },
+    delete: {
+      tags: ['Admin · Stations'],
+      summary: 'Supprimer une station',
+      security: bearer,
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      responses: { 200: { description: 'Station supprimée.' }, 404: responses.NotFound },
+    },
+  },
+  '/admin/stations/{id}/verify': {
+    put: {
+      tags: ['Admin · Stations'],
+      summary: 'Marquer une station comme vérifiée',
+      security: bearer,
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      responses: { 200: ok({ $ref: '#/components/schemas/Station' }) },
+    },
+  },
+  '/admin/stations/{id}/accounts': {
+    post: {
+      tags: ['Admin · Stations'],
+      summary: "Créer l'accès (code + mot de passe) d'une station",
+      description: 'Le mot de passe en clair est retourné une seule fois — à transmettre à la station puis à ne plus jamais réafficher.',
+      security: bearer,
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      responses: {
+        201: {
+          description: 'Accès créé.',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean' },
+                  message: { type: 'string' },
+                  data: {
+                    type: 'object',
+                    properties: { accountId: { type: 'string' }, loginCode: { type: 'string' }, password: { type: 'string' } },
+                  },
+                },
+              },
+            },
+          },
+        },
+        404: responses.NotFound,
+      },
+    },
+  },
+
+  // ===== Admin — Catalogue ================================================
+  '/admin/catalog/brands': {
+    get: {
+      tags: ['Admin · Catalogue'],
+      summary: 'Lister les marques',
+      security: bearer,
+      responses: { 200: ok({ type: 'array', items: { $ref: '#/components/schemas/Brand' } }) },
+    },
+    post: {
+      tags: ['Admin · Catalogue'],
+      summary: 'Créer une marque',
+      security: bearer,
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: { type: 'object', required: ['name'], properties: { name: { type: 'string' }, logoUrl: { type: 'string' } } },
+          },
+        },
+      },
+      responses: { 201: ok({ $ref: '#/components/schemas/Brand' }), 400: responses.BadRequest },
+    },
+  },
+  '/admin/catalog/brands/{id}': {
+    put: {
+      tags: ['Admin · Catalogue'],
+      summary: 'Modifier une marque',
+      security: bearer,
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      requestBody: {
+        content: {
+          'application/json': { schema: { type: 'object', properties: { name: { type: 'string' }, logoUrl: { type: 'string' } } } },
+        },
+      },
+      responses: { 200: ok({ $ref: '#/components/schemas/Brand' }) },
+    },
+    delete: {
+      tags: ['Admin · Catalogue'],
+      summary: 'Supprimer une marque',
+      security: bearer,
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      responses: { 200: { description: 'Marque supprimée.' } },
+    },
+  },
+  '/admin/catalog/areas': {
+    get: {
+      tags: ['Admin · Catalogue'],
+      summary: 'Lister les zones de recherche',
+      security: bearer,
+      responses: { 200: ok({ type: 'array', items: { $ref: '#/components/schemas/Area' } }) },
+    },
+    post: {
+      tags: ['Admin · Catalogue'],
+      summary: 'Créer une zone',
+      security: bearer,
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['label', 'latitude', 'longitude'],
+              properties: {
+                label: { type: 'string' },
+                latitude: { type: 'number' },
+                longitude: { type: 'number' },
+                sortOrder: { type: 'integer' },
+              },
+            },
+          },
+        },
+      },
+      responses: { 201: ok({ $ref: '#/components/schemas/Area' }), 400: responses.BadRequest },
+    },
+  },
+  '/admin/catalog/areas/{id}': {
+    put: {
+      tags: ['Admin · Catalogue'],
+      summary: 'Modifier une zone',
+      security: bearer,
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      requestBody: {
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              properties: {
+                label: { type: 'string' },
+                latitude: { type: 'number' },
+                longitude: { type: 'number' },
+                sortOrder: { type: 'integer' },
+                isActive: { type: 'boolean' },
+              },
+            },
+          },
+        },
+      },
+      responses: { 200: ok({ $ref: '#/components/schemas/Area' }) },
+    },
+    delete: {
+      tags: ['Admin · Catalogue'],
+      summary: 'Supprimer une zone',
+      security: bearer,
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      responses: { 200: { description: 'Zone supprimée.' } },
+    },
+  },
+
+  // ===== Admin — Signalements ==============================================
+  '/admin/reports': {
+    get: {
+      tags: ['Admin · Signalements'],
+      summary: 'Lister les signalements',
+      security: bearer,
+      parameters: [{ name: 'status', in: 'query', schema: { type: 'string', enum: ['PENDING', 'ACCEPTED', 'REJECTED'] } }],
+      responses: { 200: okList({ $ref: '#/components/schemas/StationReport' }) },
+    },
+  },
+  '/admin/reports/{id}': {
+    put: {
+      tags: ['Admin · Signalements'],
+      summary: 'Accepter ou rejeter un signalement',
+      security: bearer,
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: { type: 'object', required: ['status'], properties: { status: { type: 'string', enum: ['ACCEPTED', 'REJECTED'] } } },
+          },
+        },
+      },
+      responses: { 200: ok({ $ref: '#/components/schemas/StationReport' }), 400: responses.BadRequest },
+    },
+  },
+
+  // ===== Admin — Chat (supervision) ========================================
+  '/admin/chat/threads': {
+    get: {
+      tags: ['Admin · Chat'],
+      summary: 'Lister les conversations (ex: escaladées)',
+      security: bearer,
+      parameters: [{ name: 'status', in: 'query', schema: { type: 'string', enum: ['OPEN', 'ESCALATED', 'CLOSED'] } }],
+      responses: { 200: okList({ $ref: '#/components/schemas/ChatThread' }) },
+    },
+  },
+  '/admin/chat/threads/{id}/messages': {
+    get: {
+      tags: ['Admin · Chat'],
+      summary: "Lire les messages d'une conversation",
+      security: bearer,
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      responses: { 200: okList({ $ref: '#/components/schemas/ChatMessage' }) },
+    },
+    post: {
+      tags: ['Admin · Chat'],
+      summary: "Répondre en tant qu'agent",
+      security: bearer,
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      requestBody: {
+        required: true,
+        content: { 'application/json': { schema: { type: 'object', required: ['text'], properties: { text: { type: 'string' } } } } },
+      },
+      responses: { 201: ok({ $ref: '#/components/schemas/ChatMessage' }), 400: responses.BadRequest, 404: responses.NotFound },
+    },
+  },
+  '/admin/chat/threads/{id}/close': {
+    put: {
+      tags: ['Admin · Chat'],
+      summary: 'Clôturer une conversation',
+      security: bearer,
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      responses: { 200: ok({ $ref: '#/components/schemas/ChatThread' }) },
+    },
+  },
+};
+
+const openapiSpec = {
+  openapi: '3.0.3',
+  info: {
+    title: 'Carbugui API',
+    version: '1.0.0',
+    description:
+      "API backend de Carbugui — recherche de stations-service en temps réel en Guinée. " +
+      "Trois espaces : `/app` (chauffeurs), `/station` (tableau de bord station), `/admin` (back-office). " +
+      "Un canal WebSocket (même port que le serveur HTTP) diffuse les messages de chat en temps réel : " +
+      "envoyer `{ threadId, accountId }` pour s'initialiser puis `{ text }` pour envoyer un message.",
+    contact: { name: 'Carbugui' },
+  },
+  servers,
+  tags: [
+    { name: 'App · Auth' },
+    { name: 'App · Stations' },
+    { name: 'App · Chat' },
+    { name: 'Station · Auth' },
+    { name: 'Station · Dashboard' },
+    { name: 'Admin · Auth' },
+    { name: 'Admin · Comptes' },
+    { name: 'Admin · Stations' },
+    { name: 'Admin · Catalogue' },
+    { name: 'Admin · Signalements' },
+    { name: 'Admin · Chat' },
+  ],
+  components: { securitySchemes, schemas, responses },
+  paths,
+};
+
+module.exports = openapiSpec;

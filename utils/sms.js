@@ -1,0 +1,83 @@
+const fetch = require('node-fetch');
+
+// Envoi générique d'un SMS via NimbaSMS
+const sendSMS = async ({ to, message }) => {
+  try {
+    const headers = {
+      Authorization: `Basic ${process.env.SMS_API_KEY}`,
+      'Content-Type': 'application/json',
+    };
+
+    const raw = JSON.stringify({
+      sender_name: 'KEDI TECH',
+      to: [to],
+      message,
+    });
+
+    const response = await fetch(`${process.env.SMS_API_URL}/messages`, {
+      method: 'POST',
+      headers,
+      body: raw,
+      redirect: 'follow',
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.message || 'Failed to send SMS');
+    }
+
+    console.log('SMS sent successfully:', {
+      messageId: result.data?.message_id,
+      to,
+      status: result.data?.status,
+    });
+
+    return {
+      success: true,
+      messageId: result.data?.message_id,
+      status: result.data?.status,
+    };
+  } catch (error) {
+    console.error('SMS sending failed:', error.message);
+    throw new Error('Failed to send SMS');
+  }
+};
+
+const sendBulkSMS = async (recipients, message) => {
+  const results = [];
+
+  for (const recipient of recipients) {
+    try {
+      const result = await sendSMS({ to: recipient, message });
+      results.push({ recipient, success: true, ...result });
+    } catch (error) {
+      results.push({ recipient, success: false, error: error.message });
+    }
+  }
+
+  return results;
+};
+
+// Code OTP (connexion chauffeur ou changement de numéro)
+const sendOtpCode = async (phoneNumber, code, purpose = 'SIGN_IN') => {
+  const message =
+    purpose === 'PHONE_CHANGE'
+      ? `Votre code de confirmation Carbugui pour changer de numéro est : ${code}.\nCe code expire dans 10 minutes.`
+      : `Votre code de connexion Carbugui est : ${code}.\nCe code expire dans 10 minutes.`;
+
+  return sendSMS({ to: phoneNumber, message });
+};
+
+// Notification à une station lorsqu'un compte est créé pour elle
+const sendStationCredentials = async (phoneNumber, stationName, loginCode) => {
+  const message = `Bienvenue sur Carbugui !\nUn accès a été créé pour la station "${stationName}".\nCode de connexion : ${loginCode}\nÉquipe Carbugui`;
+  return sendSMS({ to: phoneNumber, message });
+};
+
+module.exports = {
+  sendSMS,
+  sendBulkSMS,
+  sendOtpCode,
+  sendStationCredentials,
+};

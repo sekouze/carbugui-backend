@@ -1,0 +1,450 @@
+// CARBUGUI — carburant Guinée
+// Data model for the API backing the Expo app in ./expo.
+//
+// Conventions
+//   - Tables are snake_case via @@map; Prisma fields stay camelCase.
+//   - Money is an integer number of GNF (the franc guinéen has no minor unit).
+//   - Every timestamp is stored UTC; the client formats for fr-GN.
+//   - Ids are cuid() so they can be minted client-side for optimistic writes.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+
+enum AccountRole {
+  DRIVER
+  STATION
+  ADMIN
+}
+
+enum AccountStatus {
+  ACTIVE
+  SUSPENDED
+  DELETED
+}
+
+enum StationMemberRole {
+  OWNER
+  STAFF
+}
+
+
+enum FuelProduct {
+  ESSENCE
+  GASOIL
+  GAZ
+}
+
+
+enum Availability {
+  AVAILABLE
+  EMPTY
+}
+
+enum StationActivityKind {
+  AVAILABILITY
+  OPEN_STATE
+  PRICE
+  VERIFICATION
+}
+
+
+enum ActivityTone {
+  AVAILABLE
+  EMPTY
+  OPEN
+  CLOSED
+}
+
+
+enum OtpPurpose {
+  SIGN_IN
+  PHONE_CHANGE
+}
+
+enum ChatRole {
+  USER
+  BOT
+  AGENT
+}
+
+enum ChatThreadStatus {
+  OPEN
+  ESCALATED
+  CLOSED
+}
+
+enum ReportKind {
+  WRONG_AVAILABILITY
+  WRONG_OPEN_STATE
+  WRONG_LOCATION
+  CLOSED_PERMANENTLY
+  OTHER
+}
+
+enum ReportStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+enum DevicePlatform {
+  IOS
+  ANDROID
+  WEB
+}
+
+// ---------------------------------------------------------------------------
+// Identity & auth
+// ---------------------------------------------------------------------------
+
+/// One row per person or station login. Drivers authenticate with a phone
+/// number + SMS code; station accounts with a code + password. The invariant
+/// "DRIVER has phoneNumber, STATION has loginCode + passwordHash" is enforced
+/// in the service layer — Prisma cannot express a CHECK constraint.
+model Account {
+  id     String        @id @default(cuid())
+  role   AccountRole   @default(DRIVER)
+  status AccountStatus @default(ACTIVE)
+
+  /// E.164, always +224XXXXXXXXX for Guinea. Null for station accounts.
+  phoneNumber String? @unique
+  fullName    String?
+  locale      String  @default("fr")
+
+  /// Fallback search zone used when the device refuses location.
+  defaultAreaId String?
+  defaultArea   Area?   @relation(fields: [defaultAreaId], references: [id], onDelete: SetNull)
+
+  /// Station credentials (argon2id hash — never the password itself).
+  loginCode    String? @unique
+  passwordHash String?
+
+  lastSeenAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  memberships  StationMembership[]
+  sessions     Session[]
+  pushTokens   PushToken[]
+  searches     SearchEvent[]
+  chatThreads  ChatThread[]
+  reports      StationReport[]
+  activities   StationActivity[]
+
+  @@index([role, status])
+  @@index([defaultAreaId])
+  @@map("accounts")
+}
+
+/// A refresh token in flight. One row per device; revoking it signs that
+/// device out.
+model Session {
+  id        String @id @default(cuid())
+  accountId String
+
+  /// SHA-256 of the refresh token. The raw token never reaches the database.
+  refreshTokenHash String          @unique
+  deviceId         String?
+  deviceName       String?
+  platform         DevicePlatform?
+  ipAddress        String?
+
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  lastUsedAt DateTime  @default(now())
+  createdAt  DateTime  @default(now())
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, revokedAt])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+/// An SMS code awaiting verification. Keyed by phone rather than account: on a
+/// first sign-in the account does not exist yet.
+model OtpChallenge {
+  id          String     @id @default(cuid())
+  phoneNumber String
+  purpose     OtpPurpose @default(SIGN_IN)
+
+  /// Hash of the 6-digit code, never the code itself.
+  codeHash    String
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(3)
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  ipAddress   String?
+  createdAt   DateTime  @default(now())
+
+  @@index([phoneNumber, createdAt])
+  @@index([expiresAt])
+  @@map("otp_challenges")
+}
+
+model PushToken {
+  id         String         @id @default(cuid())
+  accountId  String
+  token      String         @unique
+  platform   DevicePlatform
+  createdAt  DateTime       @default(now())
+  lastSeenAt DateTime       @default(now())
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
+  @@map("push_tokens")
+}
+
+// ---------------------------------------------------------------------------
+// Geography & stations
+// ---------------------------------------------------------------------------
+
+/// A search zone offered when the device position is unavailable. Seeded from
+/// areaOptions in AppContext: Conakry centre, Kaloum, Dixinn, Matam, Ratoma,
+/// Matoto.
+model Area {
+  id        String  @id @default(cuid())
+  slug      String  @unique
+  label     String
+  latitude  Float
+  longitude Float
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
+
+  stations Station[]
+  accounts Account[]
+  searches SearchEvent[]
+
+  @@map("areas")
+}
+
+/// TotalEnergies, Shell, Star Oil… A table rather than free text so the app can
+/// filter by network and show a logo.
+model Brand {
+  id      String  @id @default(cuid())
+  slug    String  @unique
+  name    String
+  logoUrl String?
+
+  stations Station[]
+
+  @@map("brands")
+}
+
+
+
+model Station {
+  id String @id @default(cuid())
+
+  /// Human-readable key ("kaloum"); also the station account's login code.
+  slug String @unique
+  name String
+
+  brandId String?
+  brand   Brand?  @relation(fields: [brandId], references: [id], onDelete: SetNull)
+
+  /// Search zone (commune) the station belongs to.
+  areaId String?
+  area   Area?   @relation(fields: [areaId], references: [id], onDelete: SetNull)
+
+  /// Free-text quartier shown under the station name ("Almamy", "Donka").
+  /// This is what the client renders as `Station.area`.
+  neighborhood String?
+  city         String  @default("Conakry")
+  address      String?
+  phoneNumber  String?
+
+  latitude  Float
+  longitude Float
+
+  /// Set when the station was imported from Google Places (New).
+  googlePlaceId String? @unique
+
+  isOpen       Boolean   @default(true)
+  isPublished  Boolean   @default(true)
+  verifiedAt   DateTime?
+  openingHours Json?
+
+  /// Bumped ONLY when availability or the open flag changes — this is the
+  /// timestamp the app ages ("à jour" under 1 h, "à confirmer" under 4 h,
+  /// "périmé" beyond). Distinct from updatedAt, which moves on any edit.
+  statusUpdatedAt DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  products    StationProduct[]
+  activities  StationActivity[]
+  memberships StationMembership[]
+  reports     StationReport[]
+
+  @@index([latitude, longitude])
+  @@index([isPublished, statusUpdatedAt])
+  @@index([areaId])
+  @@index([brandId])
+  @@map("stations")
+}
+
+/// Which staff account may update which station.
+model StationMembership {
+  id        String            @id @default(cuid())
+  accountId String
+  stationId String
+  role      StationMemberRole @default(STAFF)
+  createdAt DateTime          @default(now())
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  station Station @relation(fields: [stationId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, stationId])
+  @@index([stationId])
+  @@map("station_memberships")
+}
+
+/// The live status of one product at one station. The row's existence means the
+/// station sells that product; `availability` says whether it currently has any.
+model StationProduct {
+  id           String       @id @default(cuid())
+  stationId    String
+  product      FuelProduct
+  availability Availability @default(EMPTY)
+
+  /// Optional posted price: per litre, or per 12.5 kg bottle for butane.
+  priceGnf Int?
+
+  updatedAt   DateTime @updatedAt
+  updatedById String?
+
+  station Station @relation(fields: [stationId], references: [id], onDelete: Cascade)
+
+  @@unique([stationId, product])
+  @@index([product, availability])
+  @@map("station_products")
+}
+
+/// Append-only feed behind the dashboard's activity list, and the audit trail
+/// for "who said this station had fuel". Never updated, only inserted.
+model StationActivity {
+  id        String              @id @default(cuid())
+  stationId String
+  accountId String?
+  kind      StationActivityKind
+  tone      ActivityTone
+
+  /// Rendered as-is by the dashboard: label "Essence", detail "Marqué
+  /// disponible". Denormalised so old entries keep their original wording.
+  label  String
+  detail String
+
+  product      FuelProduct?
+  availability Availability?
+  isOpen       Boolean?
+
+  createdAt DateTime @default(now())
+
+  station Station  @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  account Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  @@index([stationId, createdAt])
+  @@index([accountId, createdAt])
+  @@map("station_activities")
+}
+
+/// A driver contesting what a station published. Feeds the trust score and
+/// tells a station its statuses have gone stale.
+model StationReport {
+  id        String       @id @default(cuid())
+  stationId String
+  accountId String?
+  kind      ReportKind
+  product   FuelProduct?
+  comment   String?
+  status    ReportStatus @default(PENDING)
+
+  resolvedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  station Station  @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  account Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  @@index([stationId, createdAt])
+  @@index([status])
+  @@map("station_reports")
+}
+
+// ---------------------------------------------------------------------------
+// Support & analytics
+// ---------------------------------------------------------------------------
+
+model ChatThread {
+  id        String           @id @default(cuid())
+  accountId String
+  status    ChatThreadStatus @default(OPEN)
+
+  /// Set when the bot handed the conversation over to WhatsApp.
+  escalatedAt DateTime?
+  closedAt    DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  account  Account       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  messages ChatMessage[]
+
+  @@index([accountId, updatedAt])
+  @@index([status])
+  @@map("chat_threads")
+}
+
+model ChatMessage {
+  id       String   @id @default(cuid())
+  threadId String
+  role     ChatRole
+  text     String
+
+  /// Which botBrain intent produced this reply, for tuning the FAQ.
+  intentId  String?
+  createdAt DateTime @default(now())
+
+  thread ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([threadId, createdAt])
+  @@map("chat_messages")
+}
+
+/// One search, for coverage analytics: where people look, for which product,
+/// and whether anything nearby actually had fuel.
+model SearchEvent {
+  id        String  @id @default(cuid())
+  accountId String?
+  areaId    String?
+
+  product     FuelProduct
+  latitude    Float
+  longitude   Float
+  radiusKm    Float       @default(5)
+  resultCount Int         @default(0)
+
+  /// Results that actually had the product, to spot dry days per quartier.
+  availableCount Int @default(0)
+
+  createdAt DateTime @default(now())
+
+  account Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  area    Area?    @relation(fields: [areaId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([accountId, createdAt])
+  @@map("search_events")
+}
