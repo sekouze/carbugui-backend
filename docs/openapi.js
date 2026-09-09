@@ -204,6 +204,10 @@ const responses = {
     description: 'Conflit avec une ressource existante.',
     content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
   },
+  TooManyRequests: {
+    description: 'Trop de tentatives — réessayer plus tard.',
+    content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+  },
 };
 
 // --- Aides pour raccourcir les définitions de routes -------------------------
@@ -373,6 +377,107 @@ const paths = {
         },
       },
       responses: { 200: { description: 'Token enregistré.' }, 400: responses.BadRequest, 401: responses.Unauthorized },
+    },
+  },
+
+  // ===== App — Auth : code PIN =====================================
+  // Évite de reconsommer un SMS à chaque ouverture de l'app : une fois un
+  // PIN défini, /pin/login réauthentifie avec le refreshToken déjà en main
+  // tant que la session correspondante est valide (ni révoquée, ni expirée).
+  '/app/auth/pin/set': {
+    post: {
+      tags: ['App · Auth'],
+      summary: 'Définir (ou changer) mon code PIN',
+      description: "Protégé par l'accessToken déjà obtenu via OTP ou /pin/login — pas besoin de ressaisir l'ancien PIN.",
+      security: bearer,
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: { type: 'object', required: ['pin'], properties: { pin: { type: 'string', example: '1234', description: '4 à 6 chiffres.' } } },
+          },
+        },
+      },
+      responses: { 200: { description: 'Code PIN enregistré.' }, 400: responses.BadRequest, 401: responses.Unauthorized },
+    },
+  },
+  '/app/auth/pin/login': {
+    post: {
+      tags: ['App · Auth'],
+      summary: 'Se reconnecter avec le code PIN (sans SMS)',
+      description:
+        "Alternative à /otp/verify quand la session est encore valide : vérifie le refreshToken (comme /app/auth/refresh) " +
+        "puis le PIN. Verrouillé 15 minutes après 5 codes erronés (utiliser /pin/forgot pour en sortir). " +
+        'Fait tourner la session comme /app/auth/refresh — mémoriser les nouveaux tokens retournés.',
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['refreshToken', 'pin'],
+              properties: { refreshToken: { type: 'string' }, pin: { type: 'string', example: '1234' } },
+            },
+          },
+        },
+      },
+      responses: {
+        200: {
+          description: 'Connexion réussie.',
+          content: {
+            'application/json': {
+              schema: {
+                allOf: [
+                  { $ref: '#/components/schemas/AuthTokens' },
+                  { type: 'object', properties: { success: { type: 'boolean' }, account: { $ref: '#/components/schemas/Account' } } },
+                ],
+              },
+            },
+          },
+        },
+        400: { description: "Aucun code PIN configuré pour ce compte — se reconnecter par SMS puis en définir un." },
+        401: responses.Unauthorized,
+        429: responses.TooManyRequests,
+      },
+    },
+  },
+  '/app/auth/pin/forgot': {
+    post: {
+      tags: ['App · Auth'],
+      summary: 'Demander un code de réinitialisation du PIN par SMS',
+      description: "Seul endpoint du flux PIN qui envoie un SMS — volontairement rare (oubli du code seulement).",
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: { type: 'object', required: ['phoneNumber'], properties: { phoneNumber: { type: 'string', example: '+224622334455' } } },
+          },
+        },
+      },
+      responses: { 200: { description: 'Code envoyé.' }, 400: responses.BadRequest, 404: responses.NotFound },
+    },
+  },
+  '/app/auth/pin/reset': {
+    post: {
+      tags: ['App · Auth'],
+      summary: 'Poser un nouveau PIN avec le code SMS reçu',
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['phoneNumber', 'code', 'pin'],
+              properties: {
+                phoneNumber: { type: 'string', example: '+224622334455' },
+                code: { type: 'string', example: '482913' },
+                pin: { type: 'string', example: '1234', description: '4 à 6 chiffres.' },
+              },
+            },
+          },
+        },
+      },
+      responses: { 200: { description: 'Code PIN mis à jour.' }, 400: responses.BadRequest, 404: responses.NotFound, 429: responses.TooManyRequests },
     },
   },
 

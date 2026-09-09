@@ -6,6 +6,7 @@ const {
   generateRefreshToken,
   hashToken,
 } = require('../../../utils/jwt');
+const { sanitizeAccount } = require('../../../utils/sanitize');
 
 const MIN_PASSWORD_LENGTH = 6;
 
@@ -121,7 +122,7 @@ exports.login = async (req, res) => {
     success: true,
     accessToken: generateAccessToken(account),
     refreshToken,
-    account,
+    account: sanitizeAccount(account),
   });
 };
 
@@ -153,5 +154,5 @@ exports.getMe = async (req, res) => {
     include: { memberships: { include: { station: true } } },
   });
 
-  return res.status(200).json({ success: true, account });
+  return res.status(200).json({ success: true, account: sanitizeAccount(account) });
 };

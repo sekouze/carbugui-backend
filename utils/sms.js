@@ -59,12 +59,14 @@ const sendBulkSMS = async (recipients, message) => {
   return results;
 };
 
-// Code OTP (connexion chauffeur ou changement de numéro)
+// Code OTP (connexion chauffeur, changement de numéro, ou réinitialisation du code PIN)
 const sendOtpCode = async (phoneNumber, code, purpose = 'SIGN_IN') => {
-  const message =
-    purpose === 'PHONE_CHANGE'
-      ? `Votre code de confirmation Carbugui pour changer de numéro est : ${code}.\nCe code expire dans 10 minutes.`
-      : `Votre code de connexion Carbugui est : ${code}.\nCe code expire dans 10 minutes.`;
+  const messages = {
+    PHONE_CHANGE: `Votre code de confirmation Carbugui pour changer de numéro est : ${code}.\nCe code expire dans 10 minutes.`,
+    PIN_RESET: `Votre code de réinitialisation du code PIN Carbugui est : ${code}.\nCe code expire dans 10 minutes.`,
+  };
+
+  const message = messages[purpose] || `Votre code de connexion Carbugui est : ${code}.\nCe code expire dans 10 minutes.`;
 
   return sendSMS({ to: phoneNumber, message });
 };

@@ -5,6 +5,7 @@ const {
   generateRefreshToken,
   hashToken,
 } = require('../../../utils/jwt');
+const { sanitizeAccount } = require('../../../utils/sanitize');
 
 // POST /admin/auth/login — numéro + mot de passe
 exports.login = async (req, res) => {
@@ -53,5 +54,5 @@ exports.login = async (req, res) => {
 // GET /admin/auth/me
 exports.getMe = async (req, res) => {
   const account = await prisma.account.findUnique({ where: { id: req.auth.accountId } });
-  return res.status(200).json({ success: true, data: account });
+  return res.status(200).json({ success: true, data: sanitizeAccount(account) });
 };

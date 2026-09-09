@@ -2,33 +2,12 @@ const bcrypt = require('bcryptjs');
 const prisma = require('../../../utils/prisma');
 const { generateOtpCode } = require('../../../utils/functions');
 const { sendOtpCode } = require('../../../utils/sms');
-const {
-  generateAccessToken,
-  generateRefreshToken,
-  verifyRefreshToken,
-  hashToken,
-} = require('../../../utils/jwt');
+const { verifyRefreshToken, hashToken } = require('../../../utils/jwt');
+const { createSession } = require('../../../utils/session');
+const { sanitizeAccount } = require('../../../utils/sanitize');
 
 const PHONE_REGEX = /^\+224[0-9]{8,9}$/;
 const OTP_TTL_MINUTES = 10;
-
-const issueSession = async (account, req) => {
-  const refreshToken = generateRefreshToken(account);
-
-  await prisma.session.create({
-    data: {
-      accountId: account.id,
-      refreshTokenHash: hashToken(refreshToken),
-      deviceId: req.body.deviceId || null,
-      deviceName: req.body.deviceName || null,
-      platform: req.body.platform || null,
-      ipAddress: req.ip,
-      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), 
-    },
-  });
-
-  return { accessToken: generateAccessToken(account), refreshToken };
-};
 
 // POST /app/auth/otp/request
 exports.requestOtp = async (req, res) => {
@@ -106,9 +85,9 @@ exports.verifyOtp = async (req, res) => {
     return res.status(403).json({ success: false, message: 'Ce compte est suspendu ou supprimé.' });
   }
 
-  const tokens = await issueSession(account, req);
+  const tokens = await createSession(account, req);
 
-  return res.status(200).json({ success: true, account, ...tokens });
+  return res.status(200).json({ success: true, account: sanitizeAccount(account), ...tokens });
 };
 
 // POST /app/auth/refresh
@@ -140,7 +119,7 @@ exports.refreshToken = async (req, res) => {
 
   await prisma.session.update({ where: { id: session.id }, data: { revokedAt: new Date() } });
 
-  const tokens = await issueSession(account, req);
+  const tokens = await createSession(account, req);
 
   return res.status(200).json({ success: true, ...tokens });
 };
@@ -166,7 +145,7 @@ exports.getMe = async (req, res) => {
     include: { defaultArea: true },
   });
 
-  return res.status(200).json({ success: true, data: account });
+  return res.status(200).json({ success: true, data: sanitizeAccount(account) });
 };
 
 // PUT /app/auth/me
@@ -182,7 +161,7 @@ exports.updateMe = async (req, res) => {
     },
   });
 
-  return res.status(200).json({ success: true, data: account });
+  return res.status(200).json({ success: true, data: sanitizeAccount(account) });
 };
 
 // POST /app/auth/push-token

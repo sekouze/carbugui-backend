@@ -72,6 +72,7 @@ enum ActivityTone {
 enum OtpPurpose {
   SIGN_IN
   PHONE_CHANGE
+  PIN_RESET
 }
 
 enum ChatRole {
@@ -133,6 +134,15 @@ model Account {
   /// Station credentials (argon2id hash — never the password itself).
   loginCode    String? @unique
   passwordHash String?
+
+  /// Quick-unlock PIN (4-6 digits, DRIVER only): set once via
+  /// /app/auth/pin/set right after an OTP login, then checked by
+  /// /app/auth/pin/login on later app opens so a still-valid session doesn't
+  /// need a fresh SMS. Locked out after too many wrong tries; /app/auth/pin/forgot
+  /// + /app/auth/pin/reset recover it with one SMS confirmation code.
+  pinHash        String?
+  pinAttempts    Int       @default(0)
+  pinLockedUntil DateTime?
 
   lastSeenAt DateTime?
   createdAt  DateTime  @default(now())

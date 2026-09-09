@@ -1,4 +1,5 @@
 const prisma = require('../../../utils/prisma');
+const { sanitizeAccount } = require('../../../utils/sanitize');
 
 // GET /admin/accounts?role=DRIVER
 exports.getAccounts = async (req, res) => {
@@ -12,7 +13,7 @@ exports.getAccounts = async (req, res) => {
     orderBy: { createdAt: 'desc' },
   });
 
-  return res.status(200).json({ success: true, count: accounts.length, data: accounts });
+  return res.status(200).json({ success: true, count: accounts.length, data: accounts.map(sanitizeAccount) });
 };
 
 // GET /admin/accounts/:id
@@ -26,7 +27,7 @@ exports.getAccountById = async (req, res) => {
     return res.status(404).json({ success: false, message: 'Compte introuvable.' });
   }
 
-  return res.status(200).json({ success: true, data: account });
+  return res.status(200).json({ success: true, data: sanitizeAccount(account) });
 };
 
 // PUT /admin/accounts/:id/status
