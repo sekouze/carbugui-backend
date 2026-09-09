@@ -77,10 +77,12 @@
           "status": {
             "type": "string",
             "enum": [
+              "PENDING",
               "ACTIVE",
               "SUSPENDED",
               "DELETED"
-            ]
+            ],
+            "description": "PENDING : compte STATION auto-inscrit, en attente de validation par un admin."
           },
           "phoneNumber": {
             "type": "string",
@@ -182,8 +184,7 @@
             "type": "string",
             "enum": [
               "ESSENCE",
-              "GASOIL",
-              "GAZ"
+              "GASOIL"
             ]
           },
           "availability": {
@@ -251,8 +252,7 @@
             "type": "string",
             "enum": [
               "ESSENCE",
-              "GASOIL",
-              "GAZ"
+              "GASOIL"
             ],
             "nullable": true
           },
@@ -301,8 +301,7 @@
             "type": "string",
             "enum": [
               "ESSENCE",
-              "GASOIL",
-              "GAZ"
+              "GASOIL"
             ],
             "nullable": true
           },
@@ -567,6 +566,16 @@
       },
       "NotFound": {
         "description": "Ressource introuvable.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Conflict": {
+        "description": "Conflit avec une ressource existante.",
         "content": {
           "application/json": {
             "schema": {
@@ -1070,8 +1079,7 @@
               "type": "string",
               "enum": [
                 "ESSENCE",
-                "GASOIL",
-                "GAZ"
+                "GASOIL"
               ]
             }
           }
@@ -1209,8 +1217,7 @@
                     "type": "string",
                     "enum": [
                       "ESSENCE",
-                      "GASOIL",
-                      "GAZ"
+                      "GASOIL"
                     ]
                   },
                   "comment": {
@@ -1522,13 +1529,167 @@
         }
       }
     },
+    "/station/auth/register": {
+      "post": {
+        "tags": [
+          "Station · Auth"
+        ],
+        "summary": "Inscription station (auto-service, en attente de validation admin)",
+        "description": "Crée un compte STATION avec le statut PENDING pour la station choisie. Le compte peut se connecter et lire son tableau de bord, mais toute écriture (ouverture/fermeture, statut produit) reste bloquée (403) tant qu'un admin ne le passe pas ACTIVE via PUT /admin/accounts/{id}/status.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "stationId",
+                  "fullName",
+                  "phoneNumber",
+                  "password"
+                ],
+                "properties": {
+                  "stationId": {
+                    "type": "string"
+                  },
+                  "fullName": {
+                    "type": "string",
+                    "minLength": 3
+                  },
+                  "phoneNumber": {
+                    "type": "string",
+                    "example": "+224622334455",
+                    "description": "Numéro guinéen, 9 chiffres débutant par 6 ou 7 ; formats acceptés et normalisés en +224XXXXXXXXX."
+                  },
+                  "password": {
+                    "type": "string",
+                    "minLength": 6
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Demande enregistrée, en attente de validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "accountId": {
+                          "type": "string"
+                        },
+                        "loginCode": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "PENDING"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requête invalide.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit avec une ressource existante.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/station/auth/me": {
+      "get": {
+        "tags": [
+          "Station · Auth"
+        ],
+        "summary": "Mon compte station (statut PENDING/ACTIVE à jour)",
+        "description": "À rappeler à chaque lancement pour détecter le passage PENDING → ACTIVE décidé par un admin.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Compte courant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "account": {
+                      "$ref": "#/components/schemas/Account"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification manquante, invalide ou expirée.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/station/auth/login": {
       "post": {
         "tags": [
           "Station · Auth"
         ],
         "summary": "Connexion station (code + mot de passe)",
-        "description": "Le compte STATION est créé par un admin via POST /admin/stations/{id}/accounts.",
+        "description": "Le compte STATION est créé par un admin via POST /admin/stations/{id}/accounts, ou auto-inscrit via POST /station/auth/register (statut PENDING). Un compte PENDING reçoit ses tokens normalement ; seul SUSPENDED/DELETED est refusé (403).",
         "requestBody": {
           "required": true,
           "content": {
@@ -1856,8 +2017,7 @@
               "type": "string",
               "enum": [
                 "ESSENCE",
-                "GASOIL",
-                "GAZ"
+                "GASOIL"
               ]
             }
           }
@@ -2175,6 +2335,7 @@
             "schema": {
               "type": "string",
               "enum": [
+                "PENDING",
                 "ACTIVE",
                 "SUSPENDED",
                 "DELETED"

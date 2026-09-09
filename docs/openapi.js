@@ -26,7 +26,11 @@ const schemas = {
     properties: {
       id: { type: 'string', example: 'cmtslfwnu0007c8w0xzxuxskz' },
       role: { type: 'string', enum: ['DRIVER', 'STATION', 'ADMIN'] },
-      status: { type: 'string', enum: ['ACTIVE', 'SUSPENDED', 'DELETED'] },
+      status: {
+        type: 'string',
+        enum: ['PENDING', 'ACTIVE', 'SUSPENDED', 'DELETED'],
+        description: 'PENDING : compte STATION auto-inscrit, en attente de validation par un admin.',
+      },
       phoneNumber: { type: 'string', nullable: true, example: '+224622334455' },
       fullName: { type: 'string', nullable: true },
       locale: { type: 'string', example: 'fr' },
@@ -63,7 +67,7 @@ const schemas = {
     properties: {
       id: { type: 'string' },
       stationId: { type: 'string' },
-      product: { type: 'string', enum: ['ESSENCE', 'GASOIL', 'GAZ'] },
+      product: { type: 'string', enum: ['ESSENCE', 'GASOIL'] },
       availability: { type: 'string', enum: ['AVAILABLE', 'EMPTY'] },
       priceGnf: { type: 'integer', nullable: true, example: 15000 },
       updatedAt: { type: 'string', format: 'date-time' },
@@ -80,7 +84,7 @@ const schemas = {
       tone: { type: 'string', enum: ['AVAILABLE', 'EMPTY', 'OPEN', 'CLOSED'] },
       label: { type: 'string', example: 'Essence' },
       detail: { type: 'string', example: 'Marqué disponible' },
-      product: { type: 'string', enum: ['ESSENCE', 'GASOIL', 'GAZ'], nullable: true },
+      product: { type: 'string', enum: ['ESSENCE', 'GASOIL'], nullable: true },
       availability: { type: 'string', enum: ['AVAILABLE', 'EMPTY'], nullable: true },
       isOpen: { type: 'boolean', nullable: true },
       createdAt: { type: 'string', format: 'date-time' },
@@ -96,7 +100,7 @@ const schemas = {
         type: 'string',
         enum: ['WRONG_AVAILABILITY', 'WRONG_OPEN_STATE', 'WRONG_LOCATION', 'CLOSED_PERMANENTLY', 'OTHER'],
       },
-      product: { type: 'string', enum: ['ESSENCE', 'GASOIL', 'GAZ'], nullable: true },
+      product: { type: 'string', enum: ['ESSENCE', 'GASOIL'], nullable: true },
       comment: { type: 'string', nullable: true },
       status: { type: 'string', enum: ['PENDING', 'ACCEPTED', 'REJECTED'] },
       resolvedAt: { type: 'string', format: 'date-time', nullable: true },
@@ -194,6 +198,10 @@ const responses = {
   },
   NotFound: {
     description: 'Ressource introuvable.',
+    content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+  },
+  Conflict: {
+    description: 'Conflit avec une ressource existante.',
     content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
   },
 };
@@ -386,7 +394,7 @@ const paths = {
         { name: 'latitude', in: 'query', required: true, schema: { type: 'number' } },
         { name: 'longitude', in: 'query', required: true, schema: { type: 'number' } },
         { name: 'radius', in: 'query', schema: { type: 'number', default: 5 }, description: 'Rayon en km.' },
-        { name: 'product', in: 'query', schema: { type: 'string', enum: ['ESSENCE', 'GASOIL', 'GAZ'] } },
+        { name: 'product', in: 'query', schema: { type: 'string', enum: ['ESSENCE', 'GASOIL'] } },
       ],
       responses: { 200: okList({ $ref: '#/components/schemas/Station' }), 400: responses.BadRequest },
     },
@@ -417,7 +425,7 @@ const paths = {
                   type: 'string',
                   enum: ['WRONG_AVAILABILITY', 'WRONG_OPEN_STATE', 'WRONG_LOCATION', 'CLOSED_PERMANENTLY', 'OTHER'],
                 },
-                product: { type: 'string', enum: ['ESSENCE', 'GASOIL', 'GAZ'] },
+                product: { type: 'string', enum: ['ESSENCE', 'GASOIL'] },
                 comment: { type: 'string' },
               },
             },
@@ -476,11 +484,86 @@ const paths = {
   },
 
   // ===== Station — Auth ==============================================
+  '/station/auth/register': {
+    post: {
+      tags: ['Station · Auth'],
+      summary: 'Inscription station (auto-service, en attente de validation admin)',
+      description:
+        "Crée un compte STATION avec le statut PENDING pour la station choisie. Le compte peut se connecter et lire son tableau de bord, mais toute écriture (ouverture/fermeture, statut produit) reste bloquée (403) tant qu'un admin ne le passe pas ACTIVE via PUT /admin/accounts/{id}/status.",
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['stationId', 'fullName', 'phoneNumber', 'password'],
+              properties: {
+                stationId: { type: 'string' },
+                fullName: { type: 'string', minLength: 3 },
+                phoneNumber: { type: 'string', example: '+224622334455', description: 'Numéro guinéen, 9 chiffres débutant par 6 ou 7 ; formats acceptés et normalisés en +224XXXXXXXXX.' },
+                password: { type: 'string', minLength: 6 },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        201: {
+          description: 'Demande enregistrée, en attente de validation.',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean' },
+                  message: { type: 'string' },
+                  data: {
+                    type: 'object',
+                    properties: {
+                      accountId: { type: 'string' },
+                      loginCode: { type: 'string' },
+                      status: { type: 'string', enum: ['PENDING'] },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        400: responses.BadRequest,
+        404: responses.NotFound,
+        409: responses.Conflict,
+      },
+    },
+  },
+  '/station/auth/me': {
+    get: {
+      tags: ['Station · Auth'],
+      summary: 'Mon compte station (statut PENDING/ACTIVE à jour)',
+      description: "À rappeler à chaque lancement pour détecter le passage PENDING → ACTIVE décidé par un admin.",
+      security: bearer,
+      responses: {
+        200: {
+          description: 'Compte courant.',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: { success: { type: 'boolean' }, account: { $ref: '#/components/schemas/Account' } },
+              },
+            },
+          },
+        },
+        401: responses.Unauthorized,
+      },
+    },
+  },
   '/station/auth/login': {
     post: {
       tags: ['Station · Auth'],
       summary: 'Connexion station (code + mot de passe)',
-      description: "Le compte STATION est créé par un admin via POST /admin/stations/{id}/accounts.",
+      description:
+        "Le compte STATION est créé par un admin via POST /admin/stations/{id}/accounts, ou auto-inscrit via POST /station/auth/register (statut PENDING). Un compte PENDING reçoit ses tokens normalement ; seul SUSPENDED/DELETED est refusé (403).",
       requestBody: {
         required: true,
         content: {
@@ -573,7 +656,7 @@ const paths = {
       security: bearer,
       parameters: [
         { name: 'stationId', in: 'path', required: true, schema: { type: 'string' } },
-        { name: 'product', in: 'path', required: true, schema: { type: 'string', enum: ['ESSENCE', 'GASOIL', 'GAZ'] } },
+        { name: 'product', in: 'path', required: true, schema: { type: 'string', enum: ['ESSENCE', 'GASOIL'] } },
       ],
       requestBody: {
         content: {
@@ -644,7 +727,7 @@ const paths = {
       security: bearer,
       parameters: [
         { name: 'role', in: 'query', schema: { type: 'string', enum: ['DRIVER', 'STATION', 'ADMIN'] } },
-        { name: 'status', in: 'query', schema: { type: 'string', enum: ['ACTIVE', 'SUSPENDED', 'DELETED'] } },
+        { name: 'status', in: 'query', schema: { type: 'string', enum: ['PENDING', 'ACTIVE', 'SUSPENDED', 'DELETED'] } },
       ],
       responses: { 200: okList({ $ref: '#/components/schemas/Account' }), 403: responses.Forbidden },
     },

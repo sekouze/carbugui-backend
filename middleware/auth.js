@@ -26,7 +26,11 @@ const auth = async (req, res, next) => {
       return res.status(401).json({ success: false, message: 'Compte introuvable.' });
     }
 
-    if (account.status !== 'ACTIVE') {
+    // PENDING is a valid, authenticated state for a self-registered station
+    // account: it may read its dashboard while it waits for an admin to
+    // approve it. Only a suspended/deleted account is refused here — writes
+    // for a PENDING account are blocked downstream (requireApprovedAccount).
+    if (account.status === 'SUSPENDED' || account.status === 'DELETED') {
       return res.status(403).json({ success: false, message: 'Compte suspendu ou supprimé.' });
     }
 
@@ -61,7 +65,7 @@ const optionalAuth = async (req, res, next) => {
 
     const account = await prisma.account.findUnique({ where: { id: decoded.accountId } });
 
-    if (account && account.status === 'ACTIVE') {
+    if (account && account.status !== 'SUSPENDED' && account.status !== 'DELETED') {
       req.auth = { accountId: account.id, role: account.role };
       req.account = account;
     }

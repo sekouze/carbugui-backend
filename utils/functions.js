@@ -11,7 +11,30 @@ const generateRandomString = (length) => {
 
 const generateOtpCode = () => crypto.randomInt(100000, 999999).toString();
 
+// Mirrors the client's normalizeGuineaPhone: strips everything but digits,
+// drops a leading 224/00224 country code, and only accepts a 9-digit number
+// starting with 6 or 7. Returns null instead of throwing so callers can turn
+// it into a plain 400 response.
+const normalizeGuineaPhone = (raw) => {
+  if (!raw) return null;
+
+  let digits = String(raw).replace(/\D/g, '');
+
+  if (digits.startsWith('00224')) {
+    digits = digits.slice(5);
+  } else if (digits.startsWith('224')) {
+    digits = digits.slice(3);
+  }
+
+  if (!/^[67]\d{8}$/.test(digits)) {
+    return null;
+  }
+
+  return `+224${digits}`;
+};
+
 module.exports = {
   generateRandomString,
   generateOtpCode,
+  normalizeGuineaPhone,
 };

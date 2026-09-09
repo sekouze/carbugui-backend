@@ -28,6 +28,9 @@ enum AccountRole {
 }
 
 enum AccountStatus {
+  /// Self-registered STATION account awaiting admin approval. Can read its
+  /// dashboard but every write is rejected (403) until an admin sets it ACTIVE.
+  PENDING
   ACTIVE
   SUSPENDED
   DELETED
@@ -42,7 +45,6 @@ enum StationMemberRole {
 enum FuelProduct {
   ESSENCE
   GASOIL
-  GAZ
 }
 
 
@@ -117,7 +119,9 @@ model Account {
   role   AccountRole   @default(DRIVER)
   status AccountStatus @default(ACTIVE)
 
-  /// E.164, always +224XXXXXXXXX for Guinea. Null for station accounts.
+  /// E.164, always +224XXXXXXXXX for Guinea. Null for admin-provisioned
+  /// station accounts; a self-registered station account stores the agent's
+  /// contact number here too, so it shares the same uniqueness as drivers.
   phoneNumber String? @unique
   fullName    String?
   locale      String  @default("fr")
@@ -321,7 +325,7 @@ model StationProduct {
   product      FuelProduct
   availability Availability @default(EMPTY)
 
-  /// Optional posted price: per litre, or per 12.5 kg bottle for butane.
+  /// Optional posted price per litre.
   priceGnf Int?
 
   updatedAt   DateTime @updatedAt

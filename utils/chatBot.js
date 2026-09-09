@@ -12,7 +12,7 @@ const INTENTS = [
   {
     id: 'availability',
     keywords: ['disponib', 'essence', 'gasoil', 'carburant', 'station'],
-    reply: 'Vous pouvez voir la disponibilité en temps réel de chaque produit (essence, gasoil, gaz) directement sur la carte de l\'application.',
+    reply: 'Vous pouvez voir la disponibilité en temps réel de chaque produit (essence, gasoil) directement sur la carte de l\'application.',
   },
   {
     id: 'thanks',

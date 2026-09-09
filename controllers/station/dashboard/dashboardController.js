@@ -1,6 +1,6 @@
 const prisma = require('../../../utils/prisma');
 
-const PRODUCT_LABELS = { ESSENCE: 'Essence', GASOIL: 'Gasoil', GAZ: 'Gaz' };
+const PRODUCT_LABELS = { ESSENCE: 'Essence', GASOIL: 'Gasoil' };
 
 // GET /station/dashboard/stations — stations gérées par le compte connecté
 exports.getMyStations = async (req, res) => {
@@ -33,7 +33,7 @@ exports.updateProduct = async (req, res) => {
   const { product } = req.params;
   const { availability, priceGnf } = req.body;
 
-  if (!['ESSENCE', 'GASOIL', 'GAZ'].includes(product)) {
+  if (!['ESSENCE', 'GASOIL'].includes(product)) {
     return res.status(400).json({ success: false, message: 'Produit invalide.' });
   }
 

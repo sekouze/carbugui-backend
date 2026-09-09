@@ -23,7 +23,7 @@ const issueSession = async (account, req) => {
       deviceName: req.body.deviceName || null,
       platform: req.body.platform || null,
       ipAddress: req.ip,
-      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), 
     },
   });
 
