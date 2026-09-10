@@ -2,11 +2,11 @@ const crypto = require('crypto');
 
 const generateRandomString = (length) => {
   let result = '';
-  const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  const characters = '0123456789';
   for (let i = 0; i < length; i++) {
     result += characters.charAt(Math.floor(Math.random() * characters.length));
   }
-  return result;
+  return result;// return les 6 chiffres du code aléatoire
 };
 
 const generateOtpCode = () => crypto.randomInt(100000, 999999).toString();

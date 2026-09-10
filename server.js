@@ -37,8 +37,8 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 
 const limiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10) || 15 * 60 * 1000,
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10) || 100,
+  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10) || 10 * 60 * 1000, 
+  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10) || 500,
   message: {
     error: 'Trop de requêtes depuis cette adresse IP, réessayez plus tard.',
   },

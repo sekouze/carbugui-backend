@@ -358,8 +358,11 @@ const importStationsFromOSM = async () => {
        * On utilise OSM + ID afin d'avoir
        * une valeur toujours unique.
        */
+      //les 6 premier chiffres de l'id osm pour le slug
+      const osmIdStr = String(element.id);
+      const osmIdPrefix = osmIdStr.slice(0, 6);
       const osmSlug =
-        `osm-${element.id}`;
+        `sonap-${osmIdPrefix}`;
 
       /**
        * Recherche d'une station existante.

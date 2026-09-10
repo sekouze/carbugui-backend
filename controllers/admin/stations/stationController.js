@@ -36,7 +36,7 @@ exports.createStation = async (req, res) => {
     return res.status(400).json({ success: false, message: 'name, latitude et longitude sont requis.' });
   }
 
-  const slug = `${slugify(name, { lower: true, strict: true, locale: 'fr' })}-${generateRandomString(4).toLowerCase()}`;
+  const slug = `sonap-${generateRandomString(6).toLowerCase()}`;
 
   const station = await prisma.station.create({
     data: {
