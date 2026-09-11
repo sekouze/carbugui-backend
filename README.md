@@ -1,21 +1,24 @@
 # CARBUGUI API
 
 Backend Node.js / Express / Prisma (MySQL) pour Carbugui — l'application qui
-localise en temps réel les stations-service de Guinée ayant de l'essence, du
-gasoil ou du gaz, avec un tableau de bord pour les stations et un back-office
+localise en temps réel les stations-service de Guinée ayant de l'essence ou
+du gasoil, avec un tableau de bord pour les stations et un back-office
 admin.
 
 ## ⛽ Fonctionnalités
 
-- **Chauffeurs** : connexion par code SMS (OTP), recherche des stations à
-  proximité, détail d'une station, signalement d'une info erronée, chat
-  d'assistance (bot + escalade vers un agent).
-- **Stations** : connexion par code + mot de passe (créé par un admin),
-  mise à jour de la disponibilité/prix par produit, ouverture/fermeture,
-  historique d'activité.
-- **Admin** : gestion des comptes, des stations (CRUD + import
-  OpenStreetMap), des marques/zones, supervision des signalements et des
-  conversations.
+- **Chauffeurs** : connexion par code SMS (OTP) puis code PIN pour les
+  ouvertures suivantes (évite de reconsommer un SMS tant que la session est
+  valide), recherche des stations à proximité, détail d'une station,
+  signalement d'une info erronée, chat d'assistance (bot + escalade vers un
+  agent).
+- **Stations** : auto-inscription (compte en attente de validation) ou
+  connexion par code + mot de passe, mise à jour de la disponibilité/prix
+  par produit, ouverture/fermeture, historique d'activité.
+- **Admin** : gestion des comptes (validation des inscriptions station), des
+  stations (CRUD + import OpenStreetMap), des marques/zones, supervision des
+  signalements et des conversations, envoi (immédiat ou programmé) de SMS
+  personnalisés à une liste de comptes.
 
 ## 🗂 Structure du projet
 
@@ -62,6 +65,7 @@ Toutes les routes sont préfixées par `/api/{API_VERSION}` (`v1` par défaut).
 | Catalogue (marques/zones) | `/admin/catalog` | Bearer (ADMIN) |
 | Signalements | `/admin/reports` | Bearer (ADMIN) |
 | Chat (supervision) | `/admin/chat` | Bearer (ADMIN) |
+| Messagerie (SMS personnalisés) | `/admin/messages` | Bearer (ADMIN) |
 
 La documentation interactive de l'API est servie sur `/api-docs` (Swagger UI).
 

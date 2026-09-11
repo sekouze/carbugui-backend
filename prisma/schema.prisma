@@ -107,6 +107,25 @@ enum DevicePlatform {
   WEB
 }
 
+enum AdminMessageRecipientStatus {
+  PENDING
+  SENT
+  FAILED
+  /// The account has no phoneNumber on file, so nothing was attempted.
+  SKIPPED
+}
+
+enum AdminMessageStatus {
+  /// scheduledAt hasn't arrived yet — the poller in utils/adminMessaging.js
+  /// hasn't dispatched it. Also the (brief) state of an immediate send while
+  /// its request handler is still running.
+  SCHEDULED
+  SENT
+  /// An admin canceled it before scheduledAt arrived. Recipients stay
+  /// PENDING — they were simply never attempted.
+  CANCELED
+}
+
 // ---------------------------------------------------------------------------
 // Identity & auth
 // ---------------------------------------------------------------------------
@@ -148,13 +167,15 @@ model Account {
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 
-  memberships  StationMembership[]
-  sessions     Session[]
-  pushTokens   PushToken[]
-  searches     SearchEvent[]
-  chatThreads  ChatThread[]
-  reports      StationReport[]
-  activities   StationActivity[]
+  memberships           StationMembership[]
+  sessions              Session[]
+  pushTokens            PushToken[]
+  searches              SearchEvent[]
+  chatThreads           ChatThread[]
+  reports               StationReport[]
+  activities            StationActivity[]
+  sentAdminMessages     AdminMessage[]          @relation("AdminMessageSender")
+  receivedAdminMessages AdminMessageRecipient[] @relation("AdminMessageRecipientAccount")
 
   @@index([role, status])
   @@index([defaultAreaId])
@@ -461,4 +482,55 @@ model SearchEvent {
   @@index([createdAt])
   @@index([accountId, createdAt])
   @@map("search_events")
+}
+
+// ---------------------------------------------------------------------------
+// Admin messaging
+// ---------------------------------------------------------------------------
+
+/// One custom SMS an admin sends to a hand-picked list of DRIVER or STATION
+/// accounts. Delivery is tracked per recipient (AdminMessageRecipient) since
+/// a batch send can partially fail — a typo'd number shouldn't hide that the
+/// other 40 texts went through.
+model AdminMessage {
+  id       String             @id @default(cuid())
+  senderId String
+  body     String
+  status   AdminMessageStatus @default(SCHEDULED)
+
+  /// When to dispatch. Defaults to "now" for an immediate send, so the same
+  /// poller query (status SCHEDULED, scheduledAt <= now) also catches an
+  /// immediate send whose request never finished — nothing is silently lost.
+  scheduledAt  DateTime  @default(now())
+  dispatchedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  sender     Account                  @relation("AdminMessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  recipients AdminMessageRecipient[]
+
+  @@index([senderId, createdAt])
+  @@index([status, scheduledAt])
+  @@map("admin_messages")
+}
+
+/// Delivery outcome of one AdminMessage for one recipient. phoneNumber is a
+/// snapshot taken at send time, so the row stays meaningful even if the
+/// account's number changes later.
+model AdminMessageRecipient {
+  id          String                       @id @default(cuid())
+  messageId   String
+  accountId   String
+  phoneNumber String?
+  status      AdminMessageRecipientStatus  @default(PENDING)
+  error       String?
+  sentAt      DateTime?
+  createdAt   DateTime                     @default(now())
+
+  message AdminMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  account Account      @relation("AdminMessageRecipientAccount", fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+  @@index([accountId, status])
+  @@map("admin_message_recipients")
 }

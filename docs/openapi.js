@@ -179,6 +179,65 @@ const schemas = {
       message: { type: 'string' },
     },
   },
+  AdminMessageRecipient: {
+    type: 'object',
+    properties: {
+      id: { type: 'string' },
+      messageId: { type: 'string' },
+      accountId: { type: 'string' },
+      phoneNumber: { type: 'string', nullable: true, description: "Copie du numéro à l'envoi." },
+      status: { type: 'string', enum: ['PENDING', 'SENT', 'FAILED', 'SKIPPED'] },
+      error: { type: 'string', nullable: true },
+      sentAt: { type: 'string', format: 'date-time', nullable: true },
+      createdAt: { type: 'string', format: 'date-time' },
+      account: {
+        type: 'object',
+        nullable: true,
+        properties: {
+          id: { type: 'string' },
+          fullName: { type: 'string', nullable: true },
+          phoneNumber: { type: 'string', nullable: true },
+          role: { type: 'string', enum: ['DRIVER', 'STATION', 'ADMIN'] },
+        },
+      },
+    },
+  },
+  AdminMessage: {
+    type: 'object',
+    properties: {
+      id: { type: 'string' },
+      senderId: { type: 'string' },
+      body: { type: 'string' },
+      status: {
+        type: 'string',
+        enum: ['SCHEDULED', 'SENT', 'CANCELED'],
+        description: 'SCHEDULED tant que scheduledAt n\'est pas arrivé (ou que /cancel n\'a pas été appelé) ; SENT une fois le lot traité.',
+      },
+      scheduledAt: { type: 'string', format: 'date-time', description: "Date d'envoi voulue. = createdAt pour un envoi immédiat." },
+      dispatchedAt: { type: 'string', format: 'date-time', nullable: true, description: 'Date effective du traitement du lot.' },
+      createdAt: { type: 'string', format: 'date-time' },
+      sender: {
+        type: 'object',
+        nullable: true,
+        properties: { id: { type: 'string' }, fullName: { type: 'string', nullable: true } },
+      },
+      recipientCount: { type: 'integer', description: 'Présent sur GET /admin/messages (liste).' },
+      recipients: {
+        type: 'array',
+        items: { $ref: '#/components/schemas/AdminMessageRecipient' },
+        description: 'Présent sur POST /admin/messages et GET /admin/messages/{id}.',
+      },
+      counts: {
+        type: 'object',
+        properties: {
+          PENDING: { type: 'integer' },
+          SENT: { type: 'integer' },
+          FAILED: { type: 'integer' },
+          SKIPPED: { type: 'integer' },
+        },
+      },
+    },
+  },
 };
 
 // --- Réponses réutilisables --------------------------------------------------
@@ -1168,6 +1227,106 @@ const paths = {
       responses: { 200: ok({ $ref: '#/components/schemas/ChatThread' }) },
     },
   },
+
+  // ===== Admin — Messagerie (SMS personnalisés) ============================
+  '/admin/messages': {
+    get: {
+      tags: ['Admin · Messagerie'],
+      summary: 'Historique des envois (100 plus récents)',
+      security: bearer,
+      parameters: [{ name: 'status', in: 'query', schema: { type: 'string', enum: ['SCHEDULED', 'SENT', 'CANCELED'] } }],
+      responses: { 200: okList({ $ref: '#/components/schemas/AdminMessage' }) },
+    },
+    post: {
+      tags: ['Admin · Messagerie'],
+      summary: 'Envoyer (ou programmer) un SMS personnalisé à une liste de comptes',
+      description:
+        "Destinataires DRIVER ou STATION uniquement (un ADMIN dans `accountIds` est ignoré et remonté dans `wrongRoleIds`). " +
+        'Chaque destinataire est traité indépendamment (voir `recipients[].status`) : SKIPPED si le compte ' +
+        "n'a pas de numéro enregistré, FAILED si l'envoi SMS a échoué — un échec isolé ne bloque jamais les autres. " +
+        "Sans `scheduledAt`, l'envoi est immédiat (le message répond une fois le lot traité). Avec `scheduledAt` " +
+        "(au moins 1 minute dans le futur), le message reste `SCHEDULED` et le planificateur (poll toutes les " +
+        "60s) le dispatche à l'heure dite — annulable via PUT /admin/messages/{id}/cancel tant qu'il n'est pas parti.",
+      security: bearer,
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['accountIds', 'body'],
+              properties: {
+                accountIds: {
+                  type: 'array',
+                  items: { type: 'string' },
+                  minItems: 1,
+                  maxItems: 1000,
+                  description: 'Identifiants de comptes DRIVER ou STATION.',
+                },
+                body: { type: 'string', maxLength: 500, example: 'Maintenance prévue ce soir de 22h à minuit.' },
+                scheduledAt: {
+                  type: 'string',
+                  format: 'date-time',
+                  description: 'Optionnel — date ISO au moins 1 minute dans le futur. Omis = envoi immédiat.',
+                },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        201: {
+          description: "Envoi traité immédiatement, ou programmé (voir `data.status`).",
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean' },
+                  message: { type: 'string' },
+                  data: {
+                    allOf: [
+                      { $ref: '#/components/schemas/AdminMessage' },
+                      {
+                        type: 'object',
+                        properties: {
+                          notFoundIds: { type: 'array', items: { type: 'string' }, description: 'Ids sans compte correspondant.' },
+                          wrongRoleIds: { type: 'array', items: { type: 'string' }, description: 'Comptes trouvés mais ni DRIVER ni STATION (ex: ADMIN).' },
+                        },
+                      },
+                    ],
+                  },
+                },
+              },
+            },
+          },
+        },
+        400: responses.BadRequest,
+      },
+    },
+  },
+  '/admin/messages/{id}': {
+    get: {
+      tags: ['Admin · Messagerie'],
+      summary: "Détail d'un envoi et statut par destinataire",
+      security: bearer,
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      responses: { 200: ok({ $ref: '#/components/schemas/AdminMessage' }), 404: responses.NotFound },
+    },
+  },
+  '/admin/messages/{id}/cancel': {
+    put: {
+      tags: ['Admin · Messagerie'],
+      summary: 'Annuler un envoi programmé pas encore dispatché',
+      security: bearer,
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+      responses: {
+        200: ok({ $ref: '#/components/schemas/AdminMessage' }),
+        400: { description: "Le message n'est plus SCHEDULED (déjà envoyé ou déjà annulé)." },
+        404: responses.NotFound,
+      },
+    },
+  },
 };
 
 const openapiSpec = {
@@ -1195,6 +1354,7 @@ const openapiSpec = {
     { name: 'Admin · Catalogue' },
     { name: 'Admin · Signalements' },
     { name: 'Admin · Chat' },
+    { name: 'Admin · Messagerie' },
   ],
   components: { securitySchemes, schemas, responses },
   paths,

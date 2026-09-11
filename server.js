@@ -11,6 +11,7 @@ dotenv.config();
 
 const prisma = require('./utils/prisma');
 const { matchIntent } = require('./utils/chatBot');
+const { dispatchDueScheduledMessages } = require('./utils/adminMessaging');
 const { errorHandler, notFound } = require('./middleware/errorHandler');
 const openapiSpec = require('./docs/openapi');
 
@@ -30,6 +31,7 @@ const adminStationRoutes = require('./routes/admin/stations/station');
 const adminCatalogRoutes = require('./routes/admin/catalog/catalog');
 const adminReportRoutes = require('./routes/admin/reports/reports');
 const adminChatRoutes = require('./routes/admin/chat/chat');
+const adminMessageRoutes = require('./routes/admin/messages/messages');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -175,6 +177,7 @@ app.use(`${apiPrefix}/admin/stations`, adminStationRoutes);
 app.use(`${apiPrefix}/admin/catalog`, adminCatalogRoutes);
 app.use(`${apiPrefix}/admin/reports`, adminReportRoutes);
 app.use(`${apiPrefix}/admin/chat`, adminChatRoutes);
+app.use(`${apiPrefix}/admin/messages`, adminMessageRoutes);
 
 app.use(notFound);
 app.use(errorHandler);
@@ -184,6 +187,12 @@ server.listen(PORT, () => {
   console.log(`🌍 Environment: ${process.env.NODE_ENV}`);
   console.log(`📡 API Version: ${apiVersion}`);
 });
+
+// Dispatches due AdminMessage rows (immediate sends interrupted mid-request,
+// and messages scheduled for the future) — see utils/adminMessaging.js.
+setInterval(() => {
+  dispatchDueScheduledMessages().catch((error) => console.error('dispatchDueScheduledMessages error:', error));
+}, 60 * 1000);
 
 process.on('SIGTERM', () => {
   console.log('SIGTERM received, shutting down gracefully');
